@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f4f6f3"><meta name="description" content="CONecta V2 — comunidade escolar, conversas e avisos em um só lugar.">
+  <title>CONecta V2 — comunidade escolar</title><link rel="stylesheet" href="./styles.css">
+  <style>
+    .boot-card{box-sizing:border-box;max-width:34rem;margin:12vh auto;padding:2rem;border:1px solid #dce5dc;border-radius:1rem;background:#fff;color:#203328;font:16px/1.6 system-ui,sans-serif;box-shadow:0 16px 48px #16351c12}
+    .boot-card h1{margin:.2rem 0 .6rem;font-size:1.4rem}.boot-card p{margin:.5rem 0}.boot-card code{overflow-wrap:anywhere}.boot-error{border-color:#d48e87}.boot-reload{margin-top:1rem;padding:.65rem 1rem;border:1px solid #738678;border-radius:.6rem;background:#fff;color:inherit;font:inherit;cursor:pointer}
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Pular para o conteúdo</a>
+  <div id="app"><main class="boot-card" role="status"><h1>Carregando o CONecta V2…</h1><p>Se esta mensagem permanecer, atualize a página. Caso o código falhe, a causa aparecerá aqui.</p></main></div>
+  <dialog id="dialog" aria-labelledby="dialog-title"><button type="button" class="icon-button close" data-action="close-dialog" aria-label="Fechar">×</button><div id="dialog-body"></div></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <noscript><main class="boot-card"><h1>Ative o JavaScript</h1><p>O CONecta V2 precisa de JavaScript para carregar as telas.</p></main></noscript>
+  <script type="module">
+    import('./app.js').catch((error) => {
+      const app = document.querySelector('#app');
+      if (!app) return;
+      const message = String(error?.message || error || 'Falha inesperada ao iniciar a aplicação.');
+      app.innerHTML = `<main class="boot-card boot-error" role="alert"><p>CONecta V2 · ERRO AO INICIAR</p><h1>A página não conseguiu carregar</h1><p>Confira se os arquivos <code>app.js</code>, <code>data.js</code>, <code>styles.css</code> e a pasta <code>services/</code> foram publicados juntos.</p><p>Detalhe: <code data-error-detail></code></p><button class="boot-reload" type="button">Tentar novamente</button></main>`;
+      app.querySelector('[data-error-detail]').textContent = message;
+      app.querySelector('button').addEventListener('click', () => location.reload());
+    });
+  </script>
+</body>
+</html>

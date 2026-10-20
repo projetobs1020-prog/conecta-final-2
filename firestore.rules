@@ -1,0 +1,130 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function self(uid) { return signedIn() && request.auth.uid == uid; }
+    function staff() { return signedIn() && request.auth.token.role in ['professor', 'secretaria', 'administrador']; }
+    function admin() { return signedIn() && request.auth.token.role == 'administrador'; }
+    function groupDoc(groupId) { return get(/databases/$(database)/documents/groups/$(groupId)).data; }
+    function groupMember(groupId) { return signedIn() && request.auth.uid in groupDoc(groupId).memberUids; }
+    function groupManager(groupId) { return groupMember(groupId) && (request.auth.uid == groupDoc(groupId).ownerId || request.auth.uid in groupDoc(groupId).moderatorUids); }
+
+    match /users/{uid} {
+      allow get: if self(uid) || (staff() && resource.data.schoolId == request.auth.token.schoolId);
+      allow list: if false;
+      allow create: if false;
+      allow update: if self(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['bio', 'classId', 'avatar', 'banner', 'privacy', 'updatedAt'])
+        && request.resource.data.bio is string && request.resource.data.bio.size() <= 240
+        && request.resource.data.classId is string && request.resource.data.classId.size() <= 50;
+      allow delete: if false;
+      match /private/{docId} {
+        allow read: if self(uid) && docId == 'preferences';
+        allow create, update: if self(uid) && docId == 'preferences'
+          && request.resource.data.keys().hasOnly(['settings', 'blockedUserIds', 'hiddenPostIds', 'hiddenPostIdsGlobal', 'hiddenMessageIds', 'updatedAt']);
+        allow delete: if self(uid) && docId == 'preferences';
+      }
+    }
+
+    match /publicProfiles/{uid} {
+      allow get, list: if signedIn() && (resource.data.profileVisible == true || self(uid));
+      allow create: if false;
+      allow update: if self(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['bio', 'classId', 'school', 'avatar', 'banner', 'privacy', 'profileVisible', 'discoverable', 'updatedAt'])
+        && request.resource.data.bio is string && request.resource.data.bio.size() <= 240
+        && request.resource.data.classId is string && request.resource.data.classId.size() <= 50;
+      allow delete: if false;
+    }
+
+    match /posts/{postId} {
+      allow get, list: if signedIn() && resource.data.moderation.status != 'hidden';
+      allow create, update, delete: if false;
+      match /likes/{uid} {
+        allow read: if signedIn();
+        allow create: if self(uid) && request.resource.data.userId == uid;
+        allow update: if false;
+        allow delete: if self(uid);
+      }
+      match /comments/{commentId} {
+        allow read: if signedIn() && resource.data.moderation.status != 'hidden';
+        allow create, update: if false;
+        allow delete: if signedIn() && resource.data.authorId == request.auth.uid;
+      }
+    }
+
+    match /groups/{groupId} {
+      allow get, list: if signedIn() && (resource.data.visibility == 'public' || request.auth.uid in resource.data.memberUids);
+      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.visibility in ['public', 'private']
+        && request.resource.data.memberUids == [request.auth.uid]
+        && request.resource.data.members.size() == 1
+        && request.resource.data.channels.size() <= 30;
+      allow update: if groupManager(groupId)
+        || (signedIn() && resource.data.visibility == 'public'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'memberUids', 'moderatorUids'])
+          && request.resource.data.memberUids.size() == resource.data.memberUids.size() + 1
+          && request.auth.uid in request.resource.data.memberUids
+          && request.resource.data.memberUids.hasAll(resource.data.memberUids)
+          && request.resource.data.members.size() == resource.data.members.size() + 1
+          && request.resource.data.members.hasAll(resource.data.members)
+          && request.resource.data.members[resource.data.members.size()].userId == request.auth.uid
+          && request.resource.data.members[resource.data.members.size()].role == 'member')
+        || (groupMember(groupId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'memberUids', 'moderatorUids'])
+          && request.auth.uid in resource.data.memberUids
+          && !(request.auth.uid in request.resource.data.memberUids)
+          && request.resource.data.memberUids.size() == resource.data.memberUids.size() - 1
+          && resource.data.memberUids.hasAll(request.resource.data.memberUids)
+          && request.resource.data.members.size() == resource.data.members.size() - 1
+          && resource.data.members.hasAll(request.resource.data.members));
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if signedIn() && resource.data.moderation.status != 'hidden' && (groupDoc(groupId).visibility == 'public' || groupMember(groupId));
+        allow create: if false;
+        allow update: if (groupManager(groupId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['moderation', 'text']))
+          || (groupMember(groupId) && resource.data.authorId == request.auth.uid && request.resource.data.authorId == request.auth.uid)
+          || (groupMember(groupId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']) && request.auth.uid in request.resource.data.readBy);
+        allow delete: if groupManager(groupId) || (groupMember(groupId) && resource.data.authorId == request.auth.uid);
+      }
+      match /joinRequests/{uid} {
+        allow read: if self(uid) || groupManager(groupId);
+        allow create: if self(uid) && groupDoc(groupId).visibility == 'private'
+          && !(request.auth.uid in groupDoc(groupId).memberUids)
+          && request.resource.data.userId == uid && request.resource.data.status == 'Pendente';
+        allow update, delete: if groupManager(groupId) || self(uid);
+      }
+    }
+
+    match /notices/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if staff();
+    }
+    match /events/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if staff();
+    }
+    match /reports/{id} {
+      allow create: if false;
+      allow read: if signedIn() && (resource.data.authorId == request.auth.uid || staff());
+      allow update: if false;
+      allow delete: if false;
+    }
+    match /adminAudit/{id} {
+      allow read: if staff();
+      allow create: if staff() && request.resource.data.actorId == request.auth.uid;
+      allow update, delete: if false;
+    }
+    match /groupInvites/{hash} { allow read, write: if false; }
+    match /groupCatalog/{groupId} { allow read: if signedIn(); allow write: if false; }
+    match /nameRegistry/{nameKey} { allow read, write: if false; }
+    match /safetySignals/{signalId} { allow read: if staff(); allow write: if false; }
+    match /accountDeletionRequests/{uid} {
+      allow read: if self(uid) || staff();
+      allow create: if self(uid) && request.resource.data.uid == uid && request.resource.data.status == 'Pendente';
+      allow update: if false;
+      allow delete: if false;
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}
